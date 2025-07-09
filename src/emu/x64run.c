@@ -27,6 +27,8 @@
 
 #include "modrm.h"
 
+#include "extensions.h"
+
 #ifdef TEST_INTERPRETER
 int RunTest(x64test_t *test)
 #else
@@ -34,6 +36,8 @@ int running32bits = 0;
 int Run(x64emu_t *emu, int step)
 #endif
 {
+    start_interpreter();
+
     uint8_t opcode;
     uint8_t nextop;
     reg64_t *oped, *opgd;
@@ -55,8 +59,10 @@ int Run(x64emu_t *emu, int step)
     int is32bits = (emu->segs[_CS]==0x23);
     int tf_next = 0;
 
-    if(emu->quit)
+    if(emu->quit) {
+        start_switching();
         return 0;
+    }
     if(addr==0) {
         // Some programs, like VB6 VARA.exe, need to trigger that segfault to actually run... (ticket #830 in box86)
         printf_log(LOG_INFO, "%04d|Ask to run at NULL, will segfault\n", GetTID());
@@ -2304,8 +2310,10 @@ if(emu->segs[_CS]!=0x33 && emu->segs[_CS]!=0x23) printf_log(LOG_NONE, "Warning, 
         emu->quit = 0;
         emu->fork = 0;
         emu = EmuFork(emu, forktype);
-        if(step)
+        if(step) {
+            start_switching();
             return 0;
+        }
         goto x64emurun;
     }
 #else
@@ -2314,5 +2322,6 @@ if(emu->segs[_CS]!=0x33 && emu->segs[_CS]!=0x23) printf_log(LOG_NONE, "Warning, 
     } else
         addr = R_RIP;
 #endif
+    start_switching();
     return 0;
 }

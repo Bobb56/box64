@@ -399,6 +399,7 @@ set(ELFLOADER_SRC
     "${BOX64_ROOT}/src/emu/x64syscall.c"
     "${BOX64_ROOT}/src/emu/x64tls.c"
     "${BOX64_ROOT}/src/emu/x64trace.c"
+    "${BOX64_ROOT}/src/emu/extensions.c"
     "${BOX64_ROOT}/src/librarian/librarian.c"
     "${BOX64_ROOT}/src/librarian/library.c"
     "${BOX64_ROOT}/src/librarian/dictionnary.c"

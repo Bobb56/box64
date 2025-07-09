@@ -3,6 +3,8 @@
 #undef ASM_MAPPING
 
 .text
+.extern start_switching
+
 .align 4
 
 .global rv64_epilog
@@ -74,4 +76,10 @@ rv64_epilog_fast:
 
     // 16 bytes aligned
     addi    sp,  sp, (8 * 24)
-    ret
+    
+    // starting chrono for block switching
+    la      t0,     start_switching
+    jr      t0
+
+    // normally, the ret a the end of start_switching will directly return instead of this one
+    // ret

@@ -3,6 +3,8 @@
 #undef ASM_MAPPING
 
 .text
+.extern start_block
+
 .align 4
 
 .global rv64_prolog
@@ -15,6 +17,18 @@ rv64_prolog:
 
     // save callee-saved registers
     sd      ra,   (0*8)(sp)
+
+    addi    sp,  sp, -24
+    sd      t6,  0(sp)
+    sd      a0,  8(sp)
+    sd      a1,  16(sp)
+    call    start_block
+    ld      a1,  16(sp)
+    ld      a0,  8(sp)
+    ld      t6,  0(sp)
+    addi    sp, sp, 24
+
+
     sd      fp,   (1*8)(sp)
     sd      s1,   (2*8)(sp)
     sd      s2,   (3*8)(sp)

@@ -25,6 +25,8 @@
 #include "gdbjit.h"
 #include "khash.h"
 
+#include "../emu/extensions.h"
+
 KHASH_MAP_INIT_INT64(table64, uint32_t)
 
 void printf_x64_instruction(dynarec_native_t* dyn, zydis_dec_t* dec, instruction_x64_t* inst, const char* name) {
@@ -613,6 +615,7 @@ dynablock_t* CreateEmptyBlock(uintptr_t addr, int is32bits, int is_new) {
 }
 
 dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_max, int is_new) {
+    start_translating();
     /*
         A Block must have this layout:
 
@@ -629,14 +632,17 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
     */
     if(addr>=BOX64ENV(nodynarec_start) && addr<BOX64ENV(nodynarec_end)) {
         dynarec_log(LOG_INFO, "Create empty block in no-dynarec zone\n");
+        back_previous_chrono();
         return CreateEmptyBlock(addr, is32bits, is_new);
     }
     if(current_helper) {
         dynarec_log(LOG_DEBUG, "Canceling dynarec FillBlock at %p as another one is going on\n", (void*)addr);
+        back_previous_chrono();
         return NULL;
     }
     if(checkInHotPage(addr)) {
         dynarec_log(LOG_DEBUG, "Not creating dynablock at %p as in a HotPage\n", (void*)addr);
+        back_previous_chrono();
         return NULL;
     }
     // protect the 1st page
@@ -647,6 +653,8 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
 #ifdef GDBJIT
     helper.gdbjit_block = box_calloc(1, sizeof(gdbjit_block_t));
 #endif
+    begin_block_trad();
+
     current_helper = &helper;
     helper.dynablock = NULL;
     helper.start = addr;
@@ -669,6 +677,7 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
     if(helper.abort) {
         if(dyn->need_dump || BOX64ENV(dynarec_log))dynarec_log(LOG_NONE, "Abort dynablock on pass0\n");
         CancelBlock64(0);
+        back_previous_chrono();
         return NULL;
     }
     if(BOX64ENV(dynarec_x87double)==2) {
@@ -678,11 +687,13 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
     if(!helper.size) {
         dynarec_log(LOG_INFO, "Warning, null-sized dynarec block (%p)\n", (void*)addr);
         CancelBlock64(0);
+        back_previous_chrono();
         return CreateEmptyBlock(addr, is32bits, is_new);
     }
     if(!isprotectedDB(addr, 1)) {
         dynarec_log(LOG_INFO, "Warning, write on current page on pass0, aborting dynablock creation (%p)\n", (void*)addr);
         CancelBlock64(0);
+        back_previous_chrono();
         return NULL;
     }
     // protect the block of it goes over the 1st page
@@ -788,6 +799,7 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
         // NULL block after removing dead code, how is that possible?
         dynarec_log(LOG_INFO, "Warning, null-sized dynarec block after trimming dead code (%p)\n", (void*)addr);
         CancelBlock64(0);
+        back_previous_chrono();
         return CreateEmptyBlock(addr, is32bits, is_new);
     }
     updateYmm0s(&helper, 0, 0);
@@ -813,6 +825,7 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
     if(helper.abort) {
         if(dyn->need_dump || BOX64ENV(dynarec_log))dynarec_log(LOG_NONE, "Abort dynablock on pass1\n");
         CancelBlock64(0);
+        back_previous_chrono();
         return NULL;
     }
     if(BOX64ENV(dynarec_x87double)==2) {
@@ -828,6 +841,7 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
     if(helper.abort) {
         if(dyn->need_dump || BOX64ENV(dynarec_log))dynarec_log(LOG_NONE, "Abort dynablock on pass2\n");
         CancelBlock64(0);
+        back_previous_chrono();
         return NULL;
     }
     // keep size of instructions for signal handling
@@ -840,10 +854,11 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
             max_size += helper.insts[imax].size;
             ++imax;
         }
-        if(!imax) return NULL; //that should never happens
+        if(!imax) return NULL; //that should never happen
         --imax;
         if(dyn->need_dump || BOX64ENV(dynarec_log))dynarec_log(LOG_NONE, "Dynablock oversized, with %zu (max=%zd), recomputing cutting at %d from %d\n", native_size, MAXBLOCK_SIZE, imax, helper.size);
         CancelBlock64(0);
+        back_previous_chrono();
         return FillBlock64(addr, alternate, is32bits, imax, is_new);
     }
     size_t insts_rsize = (helper.insts_size+2)*sizeof(instsize_t);
@@ -864,6 +879,7 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
     if(actual_p==NULL) {
         dynarec_log(LOG_INFO, "AllocDynarecMap(%p, %zu) failed, canceling block\n", (void*)addr, sz);
         CancelBlock64(0);
+        back_previous_chrono();
         return NULL;
     }
     helper.block = p;
@@ -910,6 +926,7 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
     if(helper.abort) {
         if(dyn->need_dump || BOX64ENV(dynarec_log))dynarec_log(LOG_NONE, "Abort dynablock on pass3\n");
         CancelBlock64(0);
+        back_previous_chrono();
         return NULL;
     }
     // no need for jmps anymore
@@ -959,6 +976,7 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
     if((helper.abort || (block->hash != hash))) {
         dynarec_log(LOG_DEBUG, "Warning, a block changed while being processed hash(%p:%ld)=%x/%x\n", block->x64_addr, block->x64_size, block->hash, hash);
         CancelBlock64(0);
+        back_previous_chrono();
         return NULL;
     }
     if((oldnativesize!=helper.native_size) || (oldtable64size<helper.table64size)) {
@@ -977,6 +995,7 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
         printf_log(LOG_NONE, "Table64 \t%d -> %d\n", oldtable64size*8, helper.table64size*8);
         printf_log(LOG_NONE, " ------------\n");
         CancelBlock64(0);
+        back_previous_chrono();
         return NULL;
     }
     // ok, free the helper now
@@ -1005,5 +1024,7 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
     }
     current_helper = NULL;
     //block->done = 1;
+
+    back_previous_chrono();
     return block;
 }
